@@ -35,3 +35,5 @@ wandb/
 .vscode/
 .idea/
 .DS_Store
+
+Plan.md

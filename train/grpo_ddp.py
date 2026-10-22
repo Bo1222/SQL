@@ -118,6 +118,11 @@ def run_training(args, local_rank, rank, world_size, log_file, wandb_run):
     model.to(device)
     model.eval()
     model.config.use_cache = False
+    model.gradient_checkpointing_enable()
+    model.enable_input_require_grads()
+    for module in model.modules():
+        if isinstance(module, torch.nn.Dropout):
+            module.p = 0.0
     model.generation_config.pad_token_id = tokenizer.pad_token_id
 
     for name, param in model.named_parameters():
@@ -148,6 +153,7 @@ def run_training(args, local_rank, rank, world_size, log_file, wandb_run):
         step_start = time.time()
         used_lr = optimizer.param_groups[0]["lr"]
         model.set_adapter("policy")
+        model.eval()
         # This private RNG is unaffected by rank-zero tracking or other libraries.
         prompts = prompt_rng.sample(rows, min(args.prompts_per_step, len(rows)))
         local_prompts = prompts[rank::world_size]
@@ -207,12 +213,15 @@ def run_training(args, local_rank, rank, world_size, log_file, wandb_run):
         if global_kept == 0:
             skipped_steps += 1
         else:
+            model.eval()
             with torch.no_grad():
                 for sample in kept:
                     sample["old_logp"] = sequence_logprob(model, sample["ids"], sample["start"], "policy", False)
                     sample["ref_logp"] = sequence_logprob(model, sample["ids"], sample["start"], "ref", False)
 
             optimizer.zero_grad(set_to_none=True)
+            # Gradient checkpointing is only active in training mode.
+            model.train()
             for sample in kept:
                 logp = sequence_logprob(model, sample["ids"], sample["start"], "policy", True)
                 adv = torch.tensor(sample["adv"], dtype=torch.float32, device=logp.device)
@@ -236,6 +245,7 @@ def run_training(args, local_rank, rank, world_size, log_file, wandb_run):
             optimizer.step()
             scheduler.step()
             optimizer_steps += 1
+            model.eval()
             torch.npu.empty_cache()
 
         if step % args.log_every == 0 or step == args.steps or global_kept == 0:

@@ -1,5 +1,7 @@
 # sqlrl 执行手册（Spider v1 单轮）
 
+> BIRD 数据库探索、多轮 SFT/GRPO 的新命令见 [docs/agent_pipeline.md](docs/agent_pipeline.md)。统一入口为 `bash scripts/run_bird_agent.sh <阶段>`，数据准备、轨迹构造、pilot、训练和评测均单独选择。本页后续命令保留为 Spider 单轮实验手册。
+
 本手册只描述“怎么跑、看哪里”，不自动启动实验。所有命令在 `verl_rl` 上执行。
 
 ## 0. 环境
@@ -20,8 +22,8 @@ cd ~/work/sqlrl
 | 环境 / 数据 | ✅ Spider 切分完成（sft 4,859 / rl 1,262 / val 866 / test 1,034） |
 | 基线 | ✅ Spider dev 200 EX 51.5%；BIRD dev 200 EX 25.5% |
 | SFT | ✅ 299 步 / 31.3 min；val EX 70.0%、pass@8 87.0% |
-| GRPO | 🟡 脚本就绪，未启动；先用 2 步冒烟再跑 200 步 |
-| v2 | ⬜ 11/9 gate |
+| GRPO | ✅ 200 步完成（96.5 min、11.32 GB）：val 74.0%、test 65.5%、test 可执行 95.0% |
+| v2 | ⚠️ 暂缓：Spider 执行错误仅 5%，G1 的 ≥25% 不满足 |
 
 详细进度与产物路径见 `docs/PROGRESS.md`。
 
@@ -124,7 +126,7 @@ bash scripts/run_grpo.sh
 
 ### 4.1 多卡 DDP（单卡 GRPO OOM 时）
 
-单卡 32 GB 曾在约 37 步时 OOM（峰值 28.7 GB）。4 卡实现把每步的 4 个 prompt 分给 4 个 rank（每 rank 1 个 prompt、8 条采样），梯度 all-reduce。每卡仍持有完整模型，单次生成 batch 与单条反传长度不变，不能保证解决长序列 OOM；需单独验证最长输入：
+单卡 32 GB 在约 37 步时 OOM（峰值 28.7 GB）。不改任何超参，用 4 卡把每步的 4 个 prompt 分给 4 个 rank（每 rank 1 个 prompt、8 条采样），梯度 all-reduce：
 
 ```bash
 CARDS=0,1,2,3 NPROC=4 bash scripts/run_grpo_ddp.sh
@@ -134,16 +136,61 @@ CARDS=0,1,2,3 NPROC=4 bash scripts/run_grpo_ddp.sh
 | --- | --- |
 | 超参 | 与单卡完全一致（steps=200、prompts=4、n=8、lr=1e-5、kl=0.001） |
 | 并行方式 | `torchrun` + HCCL；每个 rank 独立加载 3B + policy/ref adapter |
-| 每卡显存 | 随输入/生成长度变化；两步短输入冒烟不代表默认最长序列可运行 |
+| 每卡显存 | **默认 3072/200：2 步 10.93 GB；最长 8 条 prompt 连跑 10 步稳定 11.33 GB**。DDP 是模型复制，不按卡数除显存，详见 `docs/grpo_memory_analysis.md` |
+| W&B | 默认 offline，rank 0 写 JSONL + W&B；见 4.2 |
 | NPROC | 建议 4；>4 时多余 rank 空转（每步只有 4 个 prompt） |
 | 日志 | `logs/grpo_ddp_run.log` |
 | 产物 | `checkpoints/grpo_ddp`、`reports/grpo_ddp_{val200,test200}*.json` |
 
-实现要点：各 rank 使用同种子的独立 Python RNG 选 4 个 prompt，再取 `prompts[rank::world_size]`；本地算奖励/优势；梯度 all-reduce 后所有 rank 用相同梯度做 AdamW，因此参数与优化器状态保持一致。零方差组仍按本地组丢弃，全部跳过的步骤也写入日志。
+实现要点：每步用相同 Python RNG 选 4 个 prompt，各 rank 取 `prompts[rank::world_size]`；本地算奖励/优势；梯度 all-reduce 后所有 rank 用相同梯度做 AdamW，因此参数与优化器状态保持一致。零方差组仍按本地组丢弃。
 
-W&B 默认离线记录，由 rank 0 写入全局归约指标。`WANDB_MODE=online` 可启用线上模式（需预先登录），`WANDB_PROJECT` / `WANDB_ENTITY` / `WANDB_NAME` 可配置项目。离线记录位于输出目录的 `wandb/`，run 信息见 `wandb_run.json`。
+**显存结论：** 默认 3072/200 的 4 卡 2 步为 **10.93 GB**；用最长 8 条 prompt 做压力测试，2 步 **11.32 GB**、连跑 10 步稳定 **11.33 GB**（10/10 次更新）。DDP 分的是 prompt，不是模型或单条序列，**不降低每卡峰值**；降显存来自梯度检查点。
 
-四项 bug 的具体执行逻辑、修复和专用两步冒烟命令见 [GRPO DDP 调试说明](docs/grpo_ddp_debug.md)。
+> 注意：HuggingFace 的 gradient checkpointing 只在 `model.train()` 下生效。此前脚本一直 `eval()`，所以 14:24 的 OOM 是“检查点名义开启、实际未生效”。现在脚本在生成/参考阶段用 `eval()`，策略反传前切 `train()`，并把 dropout 置 0。详见 `docs/grpo_memory_analysis.md`。
+
+### 4.2 W&B 记录
+
+`train/grpo_tracking.py` 负责 W&B，只有 rank 0 初始化；JSONL 与 W&B 共用同一条未舍入记录。
+
+```bash
+# 默认 offline，不需要登录
+bash scripts/run_grpo_ddp.sh
+
+# 指定模式/项目/名称
+WANDB_MODE=online WANDB_PROJECT=sqlrl WANDB_NAME=grpo-4card bash scripts/run_grpo_ddp.sh
+```
+
+已验证 online：2026-10-22 修复后的默认 2 步冒烟 `https://wandb.ai/ge1222-beijing-university-of-posts-and-telecommunications-/sqlrl-smoke/runs/uvaksvk4`；最长 prompt 2 步 `https://wandb.ai/ge1222-beijing-university-of-posts-and-telecommunications-/sqlrl-smoke/runs/qh5lthyg`。本地元数据见 `reports/grpo_default_smoke_fix_20261022/out*/wandb_run.json`。
+
+配置来源：
+
+- 根目录 `.env`（模板 `.env.example`）：`WANDB_API_KEY`、`WANDB_MODE`、`WANDB_PROJECT`、`WANDB_ENTITY`、`WANDB_NAME`、`WANDB_DIR`；
+- 同名环境变量与 CLI（`--wandb-mode/--wandb-project/--wandb-entity/--wandb-name/--wandb-dir`）优先；
+- 默认 offline，联网模式需先完成登录。
+
+离线记录同步：
+
+```bash
+wandb sync checkpoints/grpo_ddp/wandb/offline-run-*/
+```
+
+产物：`checkpoints/grpo_ddp/{train_log.jsonl,wandb_run.json,wandb/offline-run-*}`。
+本次 2 步冒烟的 W&B 离线校验见 `reports/grpo_ddp_fix_wandb_20261022/real_out/wandb_verified.json`。
+
+### 4.3 运行结果（2026-10-22）
+
+| 模型 | val_200 EX | test_200 EX | test 可执行 |
+| --- | --- | --- | --- |
+| base | — | 51.5% | 86.0% |
+| SFT | 70.0% | **69.0%** | 91.5% |
+| GRPO 200 步 | **74.0%** | 65.5% | **95.0%** |
+
+- GRPO vs SFT：test -3.5 点（McNemar p=0.21，不显著）、val +4 点（p=0.057）；
+- GRPO vs base：test +14 点，明确；
+- 可执行率 91.5% → 95.0%，但“可执行但答案错”45 → 59；
+- 完整分析见 `docs/grpo_results.md`；W&B：`https://wandb.ai/ge1222-beijing-university-of-posts-and-telecommunications-/sqlrl/runs/endck7zy`。
+
+v2 注意：Spider 上 GRPO 后只剩 10/200 执行错误（5%），G1 要求 ≥25%，原 v2 计划需改 BIRD 或放弃。
 
 ## 5. 评测与审计
 
@@ -227,7 +274,8 @@ sqlrl/
 ├── train/       sft_lora.py, grpo.py
 ├── eval/        eval_base.py, recompute.py, pass_at_k.py
 ├── scripts/     run_spider_baseline.sh, run_sft.sh, run_grpo.sh, run_base_eval.sh
-├── docs/        run_spider_baseline.md, run_sft.md, SQL_EXECUTION_REWARD_PLAN.md
+├── docs/        run_spider_baseline.md, run_sft.md, grpo_ddp_debug.md, grpo_memory_analysis.md, SQL_EXECUTION_REWARD_PLAN.md
+├── .env.example  W&B 配置模板
 ├── logs/        *.log
 ├── reports/     *.json / *.jsonl
 └── checkpoints/ sft_lora/, grpo/

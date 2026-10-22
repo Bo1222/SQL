@@ -1,24 +1,14 @@
-# sqlrl：Text-to-SQL 执行奖励（v1 单轮）
+# sqlrl：Text-to-SQL 与多轮数据库探索
+
+## BIRD Agent 新入口
+
+已实现字段描述检索、取值探索、SQL 试执行、显式提交，以及 observation-masked 工具 SFT / 多轮 GRPO。BIRD 数据已准备为 SFT 4,205、RL 1,801、val 590；BIRD dev 1,534 条保留作最终评测。新入口与已有单轮实验分开，不自动启动完整训练。
+
+使用方法、对照与边界见 [多轮 pipeline](docs/agent_pipeline.md)。开发检查：`bash scripts/run_bird_agent.sh smoke`；正式训练需显式选择阶段并通过训练侧 pilot。下方保留单轮阶段的实验记录。
 
 按 `SQL_EXECUTION_REWARD_PLAN.md` 第 6 节实现，先做 v1 单轮，跑通后再做 v2 多轮。
 
 > 完整执行命令、日志路径、常见问题见 **[EXECUTION.md](EXECUTION.md)**；项目进度见 **[docs/PROGRESS.md](docs/PROGRESS.md)**。
-
-## W&B 本地配置
-
-仓库使用根目录 `.env` 保存本地 W&B 配置；首次克隆后执行：
-
-```bash
-python3 -m pip install -r requirements-config.txt
-cp .env.example .env
-chmod 600 .env
-```
-
-编辑 `.env` 中的 `WANDB_API_KEY`。需要云端记录时，将 `WANDB_MODE` 改为 `online`，并填写 `WANDB_PROJECT` 和可选的 `WANDB_ENTITY`；`offline` 模式仅在本地记录。
-
-GRPO DDP Python 入口和启动脚本都会自动读取该文件；优先级为 **命令行参数 > 已有环境变量 > .env > 默认值**。值按文本读取，不执行 shell 命令，也不展开 `${...}`。API key 只进入进程环境，不进入训练参数及 W&B config。
-
-`.env`、数据、模型权重、checkpoint、logs、reports 和 W&B 运行产物已加入 `.gitignore`；版本控制保留 `.env.example`、源码、测试和文档。
 
 ## 当前状态（2026-10-22）
 
@@ -27,7 +17,8 @@ GRPO DDP Python 入口和启动脚本都会自动读取该文件；优先级为 
 | 环境 / 数据切分 | ✅ |
 | Spider base 200 | ✅ EX 51.5%、可执行 86.0% |
 | SFT 冷启动 | ✅ val_200 EX 70.0%、pass@8 87.0% |
-| GRPO 脚本 | 🟡 就绪未启动（单卡 + 4 卡 DDP；单卡 step 37 OOM） |
+| GRPO | ✅ 200 步完成 | test EX 65.5%、可执行 95.0%；SFT test 69.0%（p=0.21）；val 74.0%；结果见 `docs/grpo_results.md` |
+| v2 多轮 | ⚠️ 暂缓 | Spider 执行错误仅 5%，G1 的 ≥25% 不满足 |
 | v2 多轮 | ⬜ 11/9 gate |
 
 ## 现状
