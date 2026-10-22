@@ -1,0 +1,37 @@
+# Local credentials and machine configuration
+.env
+.env.*
+!.env.example
+.aws/
+.netrc
+*.pem
+*.key
+
+# Python caches and virtual environments (env/ contains project source)
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# Downloaded datasets, model weights, and generated experiment outputs
+/data/raw/
+/data/processed/
+/checkpoints/
+/logs/
+/reports/
+wandb/
+*.sqlite
+*.sqlite3
+*.db
+*.safetensors
+*.pt
+*.pth
+*.ckpt
+
+# Editor and OS files
+.vscode/
+.idea/
+.DS_Store
