@@ -1,0 +1,161 @@
+# M6-08m RL configuration snapshot (2026-11-12)
+#
+# SUPERSEDED for the 2026-11-13 RL run:
+# - R1 configuration: configs/train/grpo_fullft.yaml
+# - process reward Stage 0: no_go (reports/m6/e1_student_only/process_reward_audit.md)
+# - DAPO dynamic sampling is implemented locally in train/dapo_ray_trainer.py
+#   and train/dynamic_sampling.py; use TRAINER=dapo_ds in the launcher.
+# Keep this file as the historical pre-run audit snapshot.
+#
+# Status: PREPARED, NOT EXECUTED.  RL remains paused until:
+#   1. the low-LR full-FT SFT checkpoint (step 788) passes the test1534 gate;
+#   2. the full-parameter veRL smoke test passes (memory + weight sync);
+#   3. the user explicitly authorises the run.
+#
+# The executable source of truth is scripts/run_m6_08m_rl.sh.  This file is a
+# readable snapshot, not a directly consumed veRL config.  Changing it without
+# changing the script does not change a run.
+#
+# Important: the installed veRL 0.8.0.dev0 commit (80eb57e) defines
+# algorithm.filter_groups but has no execution path.  Therefore the DAPO preset
+# here is "DAPO loss settings" (clip-higher, token-mean, overlong shaping,
+# no KL), NOT DAPO dynamic sampling.  A full DAPO claim requires implementing
+# dynamic sampling first.
+
+run:
+  experiment: m6_08m_rl
+  launcher: scripts/run_m6_08m_rl.sh
+  dry_run_default: true
+  out_pattern: outputs/m6_08m/rl_${ALGO}_${timestamp}
+  readiness: scripts/check_rl_readiness.py
+
+model:
+  path: outputs/m6_08m/student_sft_full_lowlr_5e6/epoch_2/hf_model
+  # step 788 (epoch 2) is the dev200-selected SFT checkpoint; test1534 is the
+  # independent final gate.  Do not silently substitute step_600_merged.
+  training: full-parameter (lora_rank=0)
+  precision: fp32 master weights / bf16 compute
+  gradient_checkpointing: true
+
+data:
+  train: artifacts/datasets/rl_e1_1.parquet
+  # Built by: python data/build_rl_dataset.py ... --prompt-mode query
+  # 1,801 questions / 61 DBs; manifest artifacts/datasets/rl_e1_1.parquet.manifest.json
+  val: artifacts/datasets/dev200_rl_e1_1.parquet
+  # 200 questions / 7 DBs; checkpoint selection only.
+  final_test: data/processed/bird_agent/test.jsonl
+  # 1,534 questions / 11 DBs; run once after checkpoint selection.
+  disjointness:
+    rl_vs_val_db_overlap: 0
+    rl_vs_val_question_overlap: 0
+    rl_vs_test_db_overlap: 0
+    rl_vs_test_question_overlap: 0
+  prompt:
+    mode: query
+    version: catalog-three-action-query-v2
+    retrieval_version: E1.1
+    max_tools: 4
+
+algorithm:
+  grpo:
+    adv_estimator: grpo
+    norm_adv_by_std_in_grpo: true
+    clip_low: 0.2
+    clip_high: 0.2
+    kl_coef: 0.001
+    use_kl_loss: true
+    loss_agg_mode: token-mean
+    reward_manager: naive
+  dapo_loss_only:
+    adv_estimator: grpo
+    norm_adv_by_std_in_grpo: true
+    clip_low: 0.2
+    clip_high: 0.28
+    clip_ratio_c: 10.0
+    kl_coef: 0.0
+    use_kl_loss: false
+    loss_agg_mode: token-mean
+    reward_manager: dapo
+    overlong_buffer: 0   # disabled by default: see note below
+    overlong_note: >
+      DAPORewardManager uses the full response length (attention mask),
+      including tool observations.  In multi-turn agentic RL those are not
+      policy actions, so a naive overlong penalty would penalise necessary
+      tool output.  Enable only after implementing action-token-length
+      shaping.
+    dynamic_sampling: NOT_IMPLEMENTED
+
+sampling:
+  prompts_per_update: 8
+  n: 4
+  temperature: 1.0
+  top_p: 1.0
+  top_k: -1
+  max_prompt_length: 2048
+  max_response_length: 4096
+  max_model_len: 6144
+  max_action_tokens: 512
+  max_observation_tokens: 1024
+  max_rounds: 5
+  max_tools: 4
+  gpu_memory_utilization: 0.30
+  calculate_log_probs: false
+  # veRL's AgentLoopManager expects all trajectories in a batch to either have
+  # response_logprobs or none.  GRPO recomputes old_log_probs with the actor, so
+  # rollout log-probs are optional.  Enable only for a controlled alignment
+  # audit after confirming vLLM returns complete log-probs for every turn.
+
+optimization:
+  lr: 1.0e-6
+  weight_decay: 0.0
+  lr_scheduler: constant
+  grad_clip: 1.0
+  ppo_mini_batch_size: 8          # samples, legacy FSDP actor semantics
+  ppo_micro_batch_size_per_gpu: 1
+  ppo_epochs: 1
+  param_offload: true
+  optimizer_offload: true
+  save_freq: 25
+  max_actor_ckpt_to_keep: 2
+  # A full-FT 3B checkpoint (model + AdamW moments) is tens of GB; unbounded
+  # checkpoints would fill the ~198 GB disk during a long run.
+
+monitoring:
+  require:
+    - reward_mean / reward_std
+    - mixed_group_rate
+    - all_zero_groups / all_correct_groups
+    - group_filter_rate (only after dynamic sampling exists)
+    - pg_loss / kl / clipfrac / approx_kl
+    - grad_norm / lr / entropy
+    - response_length / action_tokens / observation_tokens
+    - tool_calls / lookup_rate / invalid_actions
+    - infrastructure_errors
+    # Hard stop: veRL's standard GRPO does not drop infra groups.  The old
+    # trainer did.  A smoke must show 0 infra before a long run.
+  do_not_use_as_success:
+    - training_loss
+    - valid_rate
+    - tool_call_success_rate
+    - lookup_rate
+
+evaluation:
+  selection_set: dev200
+  final_test: test1534
+  protocol: greedy, E1.1, query prompt, compact observations, max_rounds=5,
+            max_tools=4, max_context=8192
+  note: >
+    dev200 was already used to select the SFT checkpoint.  It remains a
+    selection set for RL; the final claim must come from test1534.  Report the
+    full dev200 curve, not only the best checkpoint.
+
+budget:
+  measured_baseline: >
+    No full-parameter RL step has been run yet.  The old M0 LoRA FSDP2 +
+    vLLM-Ascend single-card one-step GRPO (107 s/step, 14.2 GB) is historical
+    evidence only and must not be extrapolated to full-parameter 4-card RL.
+  required_before_long_run:
+    - 1-step full-parameter smoke with 4 NPUs, 4-8 prompts, n=4
+    - record HBM peak, step wall time, rollout wall time, vLLM/actor sync time
+    - confirm actor weights actually change and rollout sees the new weights
+    - stop if HBM > 30 GB or if one step exceeds the agreed budget

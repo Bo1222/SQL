@@ -19,10 +19,14 @@ venv/
 # Downloaded datasets, model weights, and generated experiment outputs
 /data/raw/
 /data/processed/
+/artifacts/
 /checkpoints/
 /logs/
-/reports/
-wandb/
+/outputs/
+/extra-info/
+/wandb/
+/delivery/
+/archive/
 *.sqlite
 *.sqlite3
 *.db
@@ -31,9 +35,19 @@ wandb/
 *.pth
 *.ckpt
 
+# Internal research notes and evidence (planning docs, progress reports, traces).
+# The repository ships code; experiment records stay local.
+/docs/
+/reports/
+/BIRD_MultiTurn_SQL_Agent_Complete_Project_Plan_v3.md
+
 # Editor and OS files
 .vscode/
 .idea/
 .DS_Store
 
 Plan.md
+
+# Temporary agent artifacts; inspect unique information before cleanup
+/.codex-tmp/
+.codex-deps/

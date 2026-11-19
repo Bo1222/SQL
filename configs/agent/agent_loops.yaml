@@ -1,0 +1,4 @@
+# veRL agent-loop registration for the BIRD SQL agent.
+# Loaded with actor_rollout_ref.rollout.agent.agent_loop_config_path.
+- name: bird_sql_agent
+  _target_: agent.bird_agent_loop.BirdSQLAgentLoop

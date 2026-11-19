@@ -1,0 +1,2 @@
+# M6-08j parser contract; no permissive fallback.
+sqlglot==30.30.0

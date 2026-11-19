@@ -1,0 +1,63 @@
+# R3 DAPO Dynamic Sampling + terminal GRPO (2026-11-13)
+#
+# Executable source of truth: scripts/run_m6_08m_rl.sh with
+#   TRAINER=dapo_ds ENABLE_FILTER_GROUPS=1
+# This file is a readable record, not a Hydra file.
+
+run:
+  name: m6_08m_rl_r3_dapo_ds_20
+  launcher: scripts/run_m6_08m_rl.sh
+  trainer_module: train.main_dapo
+  output: outputs/m6_08m/rl_r3_dapo_ds_20
+
+model:
+  path: outputs/m6_08m/student_sft_full_lowlr_5e6/epoch_2/hf_model
+  training: full-parameter (lora_rank=0)
+
+data:
+  train: artifacts/datasets/rl_e1_1.parquet
+  val: artifacts/datasets/dev200_rl_e1_1.parquet
+  prompt_mode: query
+  retrieval_version: E1.1
+
+sampling:
+  prompts_per_update: 4       # target mixed groups per optimizer step
+  n: 4
+  mini_batch: 4
+  max_gen_batches: 5          # R1 mixed rate 35.4%: 3 batches underfill ~34%, 5 ~4%
+  temperature: 1.0
+  max_model_len: 6144
+  max_action_tokens: 512
+  max_observation_tokens: 1024
+  max_rounds: 5
+  max_tools: 4
+
+algorithm:
+  adv_estimator: grpo
+  clip_low: 0.2
+  clip_high: 0.2
+  loss_agg_mode: token-mean
+  use_kl_loss: true           # same as R1 (smoke passed)
+  kl_coef: 0.001
+  dynamic_sampling:
+    enable: true
+    metric: seq_final_reward   # terminal EX only
+    max_num_gen_batches: 5
+    target_groups: 4
+    underfill_policy: skip_update_and_stop_after_3_consecutive
+
+optimization:
+  lr: 1.0e-6
+  seed: 42                    # veRL resolved data_loader_seed/actor seed (launcher does not override)
+  grad_clip: 1.0
+  ppo_mini_batch_size: 4
+  param_offload: true
+  optimizer_offload: true
+  save_freq: 10
+  max_actor_ckpt_to_keep: 2
+  save_contents: [model, extra]
+
+evaluation:
+  selection_set: dev200
+  final_test: test1534
+  compare_to: R1 (same reward, same loss; only DS differs)

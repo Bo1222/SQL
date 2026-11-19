@@ -1,0 +1,67 @@
+# R1 terminal GRPO full-FT configuration snapshot (2026-11-13)
+#
+# Executable source of truth: scripts/run_m6_08m_rl.sh.
+# This file is a readable record, not a Hydra file consumed directly.
+
+run:
+  name: m6_08m_rl_r1_grpo_20
+  launcher: scripts/run_m6_08m_rl.sh
+  output: outputs/m6_08m/rl_r1_grpo_20
+  readiness: scripts/check_rl_readiness.py
+
+model:
+  path: outputs/m6_08m/student_sft_full_lowlr_5e6/epoch_2/hf_model
+  training: full-parameter (lora_rank=0)
+  precision: fp32 master / bf16 compute
+  gradient_checkpointing: true
+
+data:
+  train: artifacts/datasets/rl_e1_1.parquet
+  val: artifacts/datasets/dev200_rl_e1_1.parquet
+  final_test: data/processed/bird_agent/test.jsonl
+  prompt_mode: query
+  prompt_version: catalog-three-action-query-v2
+  retrieval_version: E1.1
+  max_tools: 4
+
+sampling:
+  prompts_per_update: 4
+  n: 4
+  mini_batch: 4
+  temperature: 1.0
+  top_p: 1.0
+  top_k: -1
+  max_prompt_length: 2048
+  max_response_length: 4096
+  max_model_len: 6144
+  max_action_tokens: 512
+  max_observation_tokens: 1024
+  max_rounds: 5
+  max_schema_lookups: 2
+  max_sql_executes: 2
+  gpu_memory_utilization: 0.30
+  calculate_log_probs: false
+
+optimization:
+  lr: 1.0e-6
+  seed: 42                    # veRL resolved data_loader_seed/actor seed (launcher does not override)
+  clip_low: 0.2
+  clip_high: 0.2
+  loss_agg_mode: token-mean
+  kl: use_kl_loss decided by the 2-step smoke; fixed for R1 and R3
+  grad_clip: 1.0
+  ppo_mini_batch_size: 4
+  ppo_micro_batch_size_per_gpu: 1
+  param_offload: true
+  optimizer_offload: true
+  save_freq: 10
+  max_actor_ckpt_to_keep: 2
+  # Pilot does not need optimizer-state resume; save model+extra to fit the
+  # 71 GB free disk. Use a separate run if bit-exact resume is required.
+  save_contents: [model, extra]
+
+evaluation:
+  selection_set: dev200
+  final_test: test1534
+  selection_rule: highest EX; tie -> earlier step; valid/lookup/repair must not collapse
+  final_test_only_for_winner: true

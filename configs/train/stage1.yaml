@@ -1,0 +1,74 @@
+# M6 Stage 1 冻结配置（2026-11-07）
+# 对应脚本：scripts/run_stage1.sh（该脚本为唯一执行入口，本文件是其可读快照）
+# 变更本文件必须同时改脚本，并在 docs/TASKS_M6.md 记录原因。
+
+run:
+  experiment: m6_stage1
+  checkpoint_dir: artifacts/checkpoints/m6_stage1
+  trace_dir: reports/m6/traces_stage1
+  total_training_steps: 51      # 50 有效更新 + 1 步余量（merged 底模下第 1 步已不再损坏，余量仅防中断）
+  save_freq: 25
+
+model:
+  base_path: artifacts/checkpoints/step_600_merged   # SFT 合并权重：actor 与 ref 同为 SFT
+  lora:
+    rank: 16
+    alpha: 32
+    # 不传 lora_adapter_path：LoRA 由 PEFT 零初始化（B=0 ⇒ 初始等价于 SFT）
+    note: "ref 走同一 model.path 且不加载 adapter ⇒ ref = 冻结的 SFT；M6-05 已实测 step1 KL=0.0, step2 KL=8.5e-05"
+  gradient_checkpointing: true
+
+actor:
+  strategy: fsdp2
+  lr: 1.0e-6
+  ppo_mini_batch_size: 16
+  ppo_micro_batch_size_per_gpu: 1
+  use_kl_loss: true
+  kl_loss_coef: 0.001
+  kl_loss_type: low_var_kl
+  fsdp_param_offload: true
+  fsdp_optimizer_offload: true
+  clip_ratio: 0.2
+  grad_clip: 1.0
+
+rollout:
+  engine: vllm
+  tensor_model_parallel_size: 1
+  gpu_memory_utilization: 0.35
+  n: 4                        # 冻结
+  temperature: 1.0            # 冻结
+  enforce_eager: true
+  max_model_len: 6144
+  max_num_seqs: 16
+
+sampling:
+  prompts_per_update: 16      # M6-04 决策：先扩题目覆盖，不加 n
+  temperature: 1.0
+  dynamic_sampling: false     # 暂缓，等 mixed 比例改善后再评估
+  group_size: 4
+
+agent:
+  loop: bird_sql_agent
+  use_chat_template: false    # SFT 与评测都是裸文本 prompt
+  retrieval_backend: E1       # 冻结
+  lookup_policy: autonomous   # 不强制首轮检索
+  max_rounds: 5
+  max_tools: 4
+  max_schema_lookups: 2
+  max_sql_executes: 2
+  max_observation_tokens: 1024
+  max_action_tokens: 512
+  max_context: 6144
+  tool_timeout: 10
+  preview_rows: 3
+
+reward:
+  type: terminal_ex            # 0/1，无 shaping
+  function: reward/bird_ex_reward.py::compute_score
+
+evaluation:
+  dev_set: artifacts/datasets/dev200.jsonl   # sha256 709b7a71…（固定）
+  dev_baseline: reports/m6/dev200_baseline.json   # SFT+E1 EX 44.5%
+  schedule: [25, 50]           # 每 25 步；50 步后按 TASKS 决定是否继续
+  protocol: greedy, max_rounds=5, E1, observation budget 1024
+  final: val590 一次 + dev1534 一次（仅在胜出后）

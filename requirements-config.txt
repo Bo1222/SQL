@@ -1,2 +1,0 @@
-# Configuration loading; the Ascend training stack is documented in EXECUTION.md.
-python-dotenv>=1.0,<2

@@ -1,120 +1,77 @@
-# sqlrl：Text-to-SQL 与多轮数据库探索
+# BIRD 多轮 SQL Agent
 
-## BIRD Agent 新入口
+基于 [BIRD](https://bird-bench.github.io/) 的检索增强多轮 SQL Agent：模型通过 `schema_lookup`、`sql_execute`、`answer` 三个工具自主检索 schema、执行只读 SQL 并提交答案。仓库包含数据构建、SFT / Agentic RL 训练、离线评测与统计分析的完整代码。
 
-已实现字段描述检索、取值探索、SQL 试执行、显式提交，以及 observation-masked 工具 SFT / 多轮 GRPO。BIRD 数据已准备为 SFT 4,205、RL 1,801、val 590；BIRD dev 1,534 条保留作最终评测。新入口与已有单轮实验分开，不自动启动完整训练。
-
-使用方法、对照与边界见 [多轮 pipeline](docs/agent_pipeline.md)。开发检查：`bash scripts/run_bird_agent.sh smoke`；正式训练需显式选择阶段并通过训练侧 pilot。下方保留单轮阶段的实验记录。
-
-按 `SQL_EXECUTION_REWARD_PLAN.md` 第 6 节实现，先做 v1 单轮，跑通后再做 v2 多轮。
-
-> 完整执行命令、日志路径、常见问题见 **[EXECUTION.md](EXECUTION.md)**；项目进度见 **[docs/PROGRESS.md](docs/PROGRESS.md)**。
-
-## 当前状态（2026-10-22）
-
-| 阶段 | 状态 |
-| --- | --- |
-| 环境 / 数据切分 | ✅ |
-| Spider base 200 | ✅ EX 51.5%、可执行 86.0% |
-| SFT 冷启动 | ✅ val_200 EX 70.0%、pass@8 87.0% |
-| GRPO | ✅ 200 步完成 | test EX 65.5%、可执行 95.0%；SFT test 69.0%（p=0.21）；val 74.0%；结果见 `docs/grpo_results.md` |
-| v2 多轮 | ⚠️ 暂缓 | Spider 执行错误仅 5%，G1 的 ≥25% 不满足 |
-| v2 多轮 | ⬜ 11/9 gate |
-
-## 现状
-
-- **主数据集：Spider 1.0**，已解压并切分：`sft 4,859 / rl 1,262 / val 866 / test 1,034`，库数 `120/120/20/20`，重叠检查全部为 0。
-- **跨数据集测试：BIRD dev**（1,534 题 / 11 库），已跑 200 条零样本基线（EX 25.5%）。
-- 模型：`/home/ma-user/work/env_verify/models/Qwen2.5-3B-Instruct`（已通过 sha256 校验）。
-
-## 目录
+## 目录结构
 
 ```
-sqlrl/
-├── env/sqlite_exec.py        # 只读执行、progress handler 超时
-├── reward/exec_reward.py     # <answer> 提取、结果比对、防作弊标记、错误分类
-├── data/schema.py            # CREATE TABLE DDL（Spider/BIRD 共用）
-├── data/build_spider.py      # Spider -> test/val/sft/rl JSONL（去重、gold 校验、按库/按题切分）
-├── data/build_bird.py        # BIRD dev -> JSONL（跨数据集测试用）
-├── data/functional_check.py  # gold 可执行、schema、prompt 长度检查
-├── rollout/hf_rollout.py     # HF generate（NPU，左 padding，stop_strings）
-├── eval/eval_base.py         # 零样本评测：EX / 有效执行率 / 审计 / 错误类型
-├── eval/recompute.py         # 不重新生成，从 raw output 重算指标
-└── scripts/run_base_eval.sh  # BIRD 200 条检查 + base 评测
+agent/         多轮 Agent 循环、SQL episode 运行时与协议
+retrieval/     catalog 解析、BM25 schema 检索、join 关系与 E1.1/E1.2 Observation
+tools/         只读 SQL worker、sql_execute、schema_lookup
+reward/        BIRD-compatible EX、typed RL reward、过程信号
+eval/          Agent / 检索评测、gold 抽取、配对统计
+data/          数据集构建与校验（metadata、SFT、RL、split 泄漏检查）
+train/         GRPO / DAPO 训练入口、Dynamic Sampling、padding
+e1_alignment/  E1 对齐数据构建、Qwen3 SFT 训练与 provenance
+configs/       agent loop、数据、模型、检索、reward、训练配置
+scripts/       数据、训练、评测运行脚本
+tests/         契约与单元测试
 ```
 
-## 跑 Spider 切分
+生成目录（`data/raw/`、`artifacts/`、`outputs/`、`checkpoints/`、`logs/`）不进入版本库。
+
+## 环境要求
+
+- Ascend 910B4 (32 GB HBM)，CANN 8.5.1，vLLM-Ascend
+- Python 3.11，PyTorch 2.9 + torch_npu 2.9
+- veRL、vLLM / vLLM-Ascend
+- 运行 `source scripts/env.sh` 配置 CANN/ATB/HCCL 与 vLLM spawn 模式
+
+`requirements-rebuild.txt` 记录额外的 SQL 解析依赖。
+
+## 快速开始
 
 ```bash
-ssh verl_rl
-source ~/work/verl_quickstart/scripts/env.sh
-cd ~/work/sqlrl
-python3 data/build_spider.py \
-  --root data/raw/spider_extract/spider_data \
-  --out data/processed/spider \
-  --tokenizer /home/ma-user/work/env_verify/models/Qwen2.5-3B-Instruct
+source scripts/env.sh
+
+# 数据与检索索引
+python3 data/build_metadata.py
+python3 data/build_rl_dataset.py --out artifacts/datasets/rl_full.parquet
+python3 data/build_sft_dataset.py
+python3 data/validate_splits.py
+python3 data/validate_dataset.py --sample 100
+
+# 测试
+python3 -m pytest tests -q
+
+# 检索 / Agent 离线评测
+python3 eval/evaluate_retrieval.py --limit 120 --out outputs/eval/retrieval.json
+python3 eval/evaluate_agent.py --limit 100 --backend unified --engine vllm \
+  --model artifacts/checkpoints/step_600_merged --out outputs/eval/agent_val100.json
+
+# 训练
+bash scripts/run_m6_08m_sft_3ep.sh   # Qwen2.5-3B 全参数 SFT
+bash scripts/run_m6_08m_rl.sh        # GRPO / DAPO Agentic RL
 ```
 
-产物：`data/processed/spider/{test,val,sft,rl}.jsonl`、`split_report.json`。
+## 实验结果
 
-切分结果（2026-10-21）：
+BIRD 上的主要结果（EX，执行准确率）：
 
-| 指标 | 数值 |
-| --- | --- |
-| sft / rl / val / test | 4,859 / 1,262 / 866 / 1,034 |
-| 库数 | 120 / 120 / 20 / 20 |
-| 重叠（val-train / test-train / sft-rl） | 0 / 0 / 0 |
-| train 去重 / gold 失败 | 10 / 3 |
-| prompt token（p50/p95/max） | 344 / 1,123 / 2,930 |
+| 模型 | dev200 | test1534 |
+|---|---|---|
+| Qwen2.5-3B base + E1.1 检索 | 49.5% (99/200) | 30.70% (471/1534) |
+| + E1.1 SFT（lr 5e-6，step 788） | **58.0%** (116/200) | **32.66%** (501/1534) |
 
-## Spider dev 200 条分层基线（2026-10-22）
+- dev200：+8.5pp（McNemar p=0.0076）。
+- test1534：+1.96pp（McNemar p=0.0675，DB bootstrap 95% CI [−2.84, +6.62]），属于弱正信号，不宣称稳健提升。
+- 检索增强消融：Table Recall 0.894 → 0.996，Join Recall 0.623 → 0.817，prompt token −37%。
+- Agentic RL（R1 GRPO 20 步、R3 DAPO Dynamic Sampling）在 dev200 上为中性（58.5% vs 58.0%，p=1.0），尚未观察到任务收益。
 
-| 指标 | 数值 |
-| --- | --- |
-| 提取成功 | 99.5% |
-| 可执行 | 86.0% |
-| EX | **51.5%**（103/200） |
-| 硬作弊 | 0 |
-| 单样本耗时 | 2.07 s |
+## 训练与评测约束
 
-错误：`no_such_column` 25、`no_such_function` 1、`no_such_table` 1、`extract_missing` 1。初版误判的 7 条 `multi_statement` 是“裸 SQL + 多余 `</answer>`”，修复提取后为 0 条。
-
-## SFT 冷启动（2026-10-22）
-
-| 项 | 值 |
-| --- | --- |
-| 数据 | 4,859 条（120 库）；max_len=2,048 后保留 4,794（丢 65 条） |
-| 配置 | LoRA r=16，batch 4 × accum 4，lr 1e-4，1 epoch，299 步 |
-| 耗时 / 显存 | 1,880 s（31.3 min）/ 峰值 21.6 GB |
-| loss | 1.86 → 0.14 |
-
-**val_200：** EX 70.0%、可执行 93.0%、提取 100%、硬作弊 0。
-**pass@8（rl_100）：** 87.0%、平均正确 4.78/8、混合组 57%、全对 30%、全 0 13%、可执行 84.9%。
-
-结论：混合组 57% ≥ 40%、平均 4.78 在 2–6 区间，**满足进入 v1 GRPO 的前提**；可执行率 84.9% 需在训练中监控。
-
-## 跑 BIRD 跨数据集基线
-
-```bash
-bash ~/work/sqlrl/scripts/run_base_eval.sh
-```
-
-| 指标 | BIRD dev 200 |
-| --- | --- |
-| 提取成功 | 100% |
-| 可执行 | 60.0% |
-| EX | **25.5%**（simple 33.0% / moderate 18.2% / challenging 5.3%） |
-| 硬作弊 | 0 |
-
-## 评测口径
-
-- **EX**：候选 SQL 与 gold SQL 的执行结果一致；gold 含 `ORDER BY` 时顺序敏感，否则按多重集比较。
-- **有效执行率**：候选 SQL 能执行的比例，与 EX 分开报告。
-- **审计**：硬作弊只看 `constant_no_from`（无 FROM 而 gold 有）；`empty_both`（空对空）与 `single_row_both`（单行对单行）只作 info——Spider/BIRD 都有合法的空结果和标量答案，不能一票否决。
-- **错误类型**：语法、表名、列名、超时等分开计数。
-
-## 下一步
-
-1. 跑 Spider dev 200 条零样本基线。
-2. SFT 冷启动（LoRA，只对模型 token 算 loss）。
-3. v1 GRPO，再按 gate 决定是否做 v2 多轮。
+- **单卡 32 GB**：3B 使用全参数 SFT / FSDP2；更大模型需 LoRA 或多卡。
+- **必须清空 `PYTORCH_NPU_ALLOC_CONF`**，否则与 vLLM-Ascend 的 NPU 内存池冲突。
+- 训练 rollout 必须使用 `bird_sql_agent`（注册于 `configs/agent/agent_loops.yaml`）。
+- SFT 与评测保持一致：`+bird_agent.use_chat_template=false`（裸文本 prompt）。
+- dev200 仅用于 checkpoint 选择；test1534 为独立最终测试集。
