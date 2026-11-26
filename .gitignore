@@ -4,15 +4,28 @@
 !.env.example
 .aws/
 .netrc
+.ssh/
+.huggingface/
 *.pem
 *.key
+*.p12
+*.pfx
 
 # Python caches and virtual environments (env/ contains project source)
 __pycache__/
 *.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+.ipynb_checkpoints/
 .venv/
 venv/
 
@@ -27,6 +40,7 @@ venv/
 /wandb/
 /delivery/
 /archive/
+/monitor_status.json
 *.sqlite
 *.sqlite3
 *.db
@@ -34,6 +48,12 @@ venv/
 *.pt
 *.pth
 *.ckpt
+*.bin
+*.onnx
+*.gguf
+*.parquet
+*.arrow
+*.log
 
 # Internal research notes and evidence (planning docs, progress reports, traces).
 # The repository ships code; experiment records stay local.
@@ -45,9 +65,18 @@ venv/
 .vscode/
 .idea/
 .DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
 
-Plan.md
-
-# Temporary agent artifacts; inspect unique information before cleanup
+# Temporary files
+*.tmp
+*.bak
+*.orig
+*.rej
 /.codex-tmp/
 .codex-deps/
+
+Plan.md
+AGENTS.md

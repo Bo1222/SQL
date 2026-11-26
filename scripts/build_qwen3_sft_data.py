@@ -2,6 +2,7 @@
 import argparse
 import hashlib
 import json
+import os
 import sys
 from collections import Counter
 from pathlib import Path
@@ -22,8 +23,9 @@ def sha_text(text):
 
 def main():
     p = argparse.ArgumentParser()
+    model_root = Path(os.environ.get("SQLRL_MODEL_ROOT", Path.home() / "work" / "env_verify" / "models"))
     p.add_argument("--data", default="artifacts/m6/e1_alignment/e1_alignment_sft.jsonl")
-    p.add_argument("--tokenizer", default="/home/ma-user/work/env_verify/models/Qwen3-4B-Instruct-2507-ms")
+    p.add_argument("--tokenizer", default=str(model_root / "Qwen3-4B-Instruct-2507-ms"))
     p.add_argument("--out", default="artifacts/m6/qwen3_4b_sft/e1_sft_qwen3.jsonl")
     p.add_argument("--manifest", default="artifacts/m6/qwen3_4b_sft/dataset_manifest.json")
     p.add_argument("--max-context", type=int, default=6144)

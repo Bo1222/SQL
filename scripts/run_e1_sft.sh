@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # E1-06: segment-masked LoRA SFT V2 from the frozen SFT capability.
 # Budget (实测 2.4 s/micro-step at ~1k tokens): 1 epoch over <=1,200 examples
 # with grad_accum=8 is about 40-60 min, under the 1 h training gate.
 set -eo pipefail
-source /home/ma-user/work/sqlrl/scripts/env.sh
-cd /home/ma-user/work/sqlrl
-export PYTHONPATH=/home/ma-user/work/sqlrl:$PYTHONPATH
+source "$ROOT/scripts/env.sh"
+cd "$ROOT"
+export PYTHONPATH="$ROOT:$PYTHONPATH"
 
 python3 -u -m e1_alignment.sft_train \
   --data artifacts/m6/e1_alignment/e1_alignment_sft.jsonl \

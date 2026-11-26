@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # 5-step LR/signal diagnostic on the corrected (compact) observation runtime.
 # Usage: bash scripts/run_lr_diag.sh <lr> <tag> [steps]
 set -eo pipefail
-source /home/ma-user/work/verl_quickstart/scripts/env.sh
-cd /home/ma-user/work/sqlrl
+source "$ROOT/scripts/env.sh"
+cd "$ROOT"
 export ASCEND_RT_VISIBLE_DEVICES="${CARDS:-0}"
-export PYTHONPATH=/home/ma-user/work/sqlrl:$PYTHONPATH
+export PYTHONPATH="$ROOT:$PYTHONPATH"
 export TOKENIZERS_PARALLELISM=false
 export HYDRA_FULL_ERROR=1
 export WANDB_MODE=disabled
@@ -15,7 +16,6 @@ LR="$1"
 TAG="$2"
 STEPS="${3:-5}"
 if [ "$#" -ge 3 ]; then shift 3; else shift "$#"; fi
-ROOT=/home/ma-user/work/sqlrl
 MODEL=$ROOT/artifacts/checkpoints/step_600_merged
 CKPT_DIR=$ROOT/artifacts/checkpoints/lr_diag/$TAG
 TRACE_DIR=$ROOT/reports/m6/traces_lr_diag/$TAG

@@ -1,0 +1,29 @@
+# Normalize text files and keep binary artifacts out of diffs.
+* text=auto eol=lf
+
+*.py text eol=lf
+*.sh text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.json text eol=lf
+*.toml text eol=lf
+*.md text eol=lf
+*.txt text eol=lf
+
+*.safetensors binary
+*.pt binary
+*.pth binary
+*.ckpt binary
+*.bin binary
+*.onnx binary
+*.gguf binary
+*.sqlite binary
+*.sqlite3 binary
+*.db binary
+*.parquet binary
+*.arrow binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.zip binary

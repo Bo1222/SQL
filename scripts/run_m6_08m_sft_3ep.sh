@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # M6-08m student-only 3-epoch SFT from the built dataset.
 # Usage: DATA=... OUT=... bash scripts/run_m6_08m_sft_3ep.sh
 set -eo pipefail
-cd /home/ma-user/work/sqlrl
-source scripts/env.sh
+cd "$ROOT"
+source "$ROOT/scripts/env.sh"
 export ASCEND_RT_VISIBLE_DEVICES="${CARDS:-0}"
 DATA="${DATA:-artifacts/m6/e1_student_only/sft_student_full_prefer.jsonl}"
 OUT="${OUT:-outputs/m6_08m/student_sft_3ep}"

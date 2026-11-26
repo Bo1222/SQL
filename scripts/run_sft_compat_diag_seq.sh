@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # Sequential B/C arms on the single visible NPU (this session only exposes one).
 # A is already complete as reports/m6/diag_sft_A.json.
 set -o pipefail
-cd /home/ma-user/work/sqlrl
+cd "$ROOT"
 mkdir -p reports/m6 logs
 export CARDS=0
-source scripts/env.sh
+source "$ROOT/scripts/env.sh"
 
 run_arm() {
   local name=$1

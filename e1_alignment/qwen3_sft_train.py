@@ -8,6 +8,7 @@ import argparse
 import hashlib
 import json
 import math
+import os
 import time
 from itertools import islice
 from pathlib import Path
@@ -29,8 +30,9 @@ from e1_alignment.sft_train import (
 
 def main():
     p = argparse.ArgumentParser()
+    model_root = Path(os.environ.get("SQLRL_MODEL_ROOT", Path.home() / "work" / "env_verify" / "models"))
     p.add_argument("--data", default="artifacts/m6/qwen3_4b_sft/e1_sft_qwen3.jsonl")
-    p.add_argument("--model", default="/home/ma-user/work/env_verify/models/Qwen3-4B-Instruct-2507-ms")
+    p.add_argument("--model", default=str(model_root / "Qwen3-4B-Instruct-2507-ms"))
     p.add_argument("--out", required=True)
     p.add_argument("--epochs", type=int, default=1)
     p.add_argument("--grad-accum", type=int, default=8)

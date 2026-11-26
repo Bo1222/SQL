@@ -13,6 +13,7 @@ It is an approximate continuation, not a bit-exact resume. The summary records t
 import argparse
 import hashlib
 import json
+import os
 import time
 from itertools import islice
 from pathlib import Path
@@ -86,9 +87,9 @@ def build_resume_model(model_path, adapter_path, device):
 
 def main():
     parser = argparse.ArgumentParser()
+    model_root = Path(os.environ.get("SQLRL_MODEL_ROOT", Path.home() / "work" / "env_verify" / "models"))
     parser.add_argument("--data", default="artifacts/m6/qwen3_4b_sft/e1_sft_qwen3.jsonl")
-    parser.add_argument("--model",
-                        default="/home/ma-user/work/env_verify/models/Qwen3-4B-Instruct-2507-ms")
+    parser.add_argument("--model", default=str(model_root / "Qwen3-4B-Instruct-2507-ms"))
     parser.add_argument("--adapter", default="outputs/qwen3_4b_sft/e1_lora_v1_partial91")
     parser.add_argument("--partial-log", default="logs/qwen3_4b_sft_l2_partial91.log")
     parser.add_argument("--out", required=True)

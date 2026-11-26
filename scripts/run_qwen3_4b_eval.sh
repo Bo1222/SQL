@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # Qwen3-4B-Instruct-2507 zero-shot probe on the frozen E1 dev200 contract.
 # Usage: bash scripts/run_qwen3_4b_eval.sh smoke|full
 set -o pipefail
-source /home/ma-user/work/sqlrl/scripts/env.sh
-cd /home/ma-user/work/sqlrl
-export PYTHONPATH=/home/ma-user/work/sqlrl:${PYTHONPATH:-}
+source "$ROOT/scripts/env.sh"
+cd "$ROOT"
+export PYTHONPATH="$ROOT:${PYTHONPATH:-}"
 
 MODE=${1:-smoke}
-MODEL=${MODEL:-/home/ma-user/work/env_verify/models/Qwen3-4B-Instruct-2507-ms}
+MODEL=${MODEL:-${SQLRL_MODEL_ROOT:-$HOME/work/env_verify/models}/Qwen3-4B-Instruct-2507-ms}
 OUTDIR=${OUTDIR:-reports/m6/qwen3_4b_zero_shot}
 GPU_MEM=${GPU_MEM:-0.55}
 NPU_ID=${NPU_ID:-2}

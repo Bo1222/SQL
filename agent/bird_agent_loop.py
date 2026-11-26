@@ -64,15 +64,16 @@ class BirdSQLAgentLoop(AgentLoopBase):
         # wrapping it in <|im_start|>... puts the policy off-distribution.
         self.use_chat_template = bool(cfg.get("use_chat_template", False))
         self.trace_dir = os.environ.get("SQLRL_TRACE_DIR", "")
+        self.prompt_mode = None
         if self.runtime_contract:
-            from agent.runtime_contract import CONTRACT, CONTRACT_ID
-            if self.runtime_contract != CONTRACT_ID:
-                raise ValueError(f"unknown runtime contract {self.runtime_contract!r}")
+            from agent.runtime_contract import contract_for
+            contract = contract_for(self.runtime_contract)
+            self.prompt_mode = contract["prompt_mode"]
             self.ep_cfg.max_response_tokens = self.response_length
-            for key, value in CONTRACT.items():
+            for key, value in contract.items():
                 if key in EpisodeConfig.__dataclass_fields__ and getattr(self.ep_cfg, key) != value:
                     raise ValueError(f"runtime contract config mismatch: {key}")
-            if self.retrieval_version != CONTRACT["retrieval_version"] or self.use_chat_template:
+            if self.retrieval_version != contract["retrieval_version"] or self.use_chat_template:
                 raise ValueError("runtime contract retrieval/template mismatch")
 
     def _count_tokens(self, text):
@@ -116,7 +117,7 @@ class BirdSQLAgentLoop(AgentLoopBase):
         typed_runtime = bool(getattr(self, "runtime_contract", ""))
         if typed_runtime:
             from agent.runtime_contract import load_store, validate_extra
-            validate_extra(extra)
+            validate_extra(extra, contract_id=self.runtime_contract)
             key = (self.catalog_dir, db_id, self.runtime_contract)
             if key not in _STORE_CACHE:
                 _STORE_CACHE[key] = load_store(self.catalog_dir, db_id, extra["db_path"])
@@ -137,8 +138,8 @@ class BirdSQLAgentLoop(AgentLoopBase):
         else:
             contents = [m.get("content", "") for m in messages]
             if typed_runtime:
-                from agent.runtime_contract import prompt as contract_prompt
-                if "\n".join(contents) != contract_prompt(extra, store):
+                from agent.runtime_contract import prompt_for
+                if "\n".join(contents) != prompt_for(extra, store, contract_id=self.runtime_contract):
                     raise ValueError("dataset prompt differs from shared A runtime prompt")
             prompt_ids = self.tokenizer.encode("\n".join(contents), add_special_tokens=False)
         response_ids, response_mask, logprobs = [], [], []
@@ -260,6 +261,7 @@ class BirdSQLAgentLoop(AgentLoopBase):
                       "schema_lookups": schema_lookups, "sql_executes": sql_executes,
                       "invalid_actions": invalid, "tool_events": tool_events,
                       "retrieval_version": self.retrieval_version,
+                      "prompt_mode": getattr(self, "prompt_mode", None),
                       "runtime_contract": getattr(self, "runtime_contract", ""),
                       "runtime_fingerprint": extra.get("runtime_fingerprint"),
                       "max_context": self.ep_cfg.max_context,

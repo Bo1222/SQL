@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # 20-step 5e-6 pilot on the compact observation runtime.
 # Saves global_step_10 and global_step_20 for dev200 evaluation.
 set -eo pipefail
-source /home/ma-user/work/verl_quickstart/scripts/env.sh
-cd /home/ma-user/work/sqlrl
+source "$ROOT/scripts/env.sh"
+cd "$ROOT"
 export ASCEND_RT_VISIBLE_DEVICES="${CARDS:-0}"
-export PYTHONPATH=/home/ma-user/work/sqlrl:$PYTHONPATH
+export PYTHONPATH="$ROOT:$PYTHONPATH"
 export TOKENIZERS_PARALLELISM=false
 export HYDRA_FULL_ERROR=1
 export WANDB_MODE=disabled
 unset PYTORCH_NPU_ALLOC_CONF
 
-ROOT=/home/ma-user/work/sqlrl
 MODEL=$ROOT/artifacts/checkpoints/step_600_merged
 TAG=lr5e6_20
 CKPT_DIR=$ROOT/artifacts/checkpoints/lr_diag/$TAG

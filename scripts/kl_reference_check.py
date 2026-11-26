@@ -5,6 +5,7 @@ with "reference = base model" or with a correct merged reference.
 """
 import argparse
 import json
+import os
 from pathlib import Path
 
 import torch
@@ -29,7 +30,8 @@ def token_logprobs(model, ids):
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--base", default="/home/ma-user/work/env_verify/models/Qwen2.5-3B-Instruct")
+    model_root = Path(os.environ.get("SQLRL_MODEL_ROOT", Path.home() / "work" / "env_verify" / "models"))
+    p.add_argument("--base", default=str(model_root / "Qwen2.5-3B-Instruct"))
     p.add_argument("--other", default="artifacts/checkpoints/step_600_merged")
     p.add_argument("--samples", default="artifacts/datasets/dev200.jsonl")
     p.add_argument("--n", type=int, default=5)

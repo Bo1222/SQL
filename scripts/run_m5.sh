@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # M5: paired retrieval-backend comparison with a frozen SFT adapter (no RL).
 set -eo pipefail
-source /home/ma-user/work/sqlrl/scripts/env.sh
-cd /home/ma-user/work/sqlrl
+source "$ROOT/scripts/env.sh"
+cd "$ROOT"
 N="${N:-100}"
 for backend in legacy unified; do
   echo "=== E-$backend n=$N ==="

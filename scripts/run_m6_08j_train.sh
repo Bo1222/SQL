@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 set -eo pipefail
-cd /home/ma-user/work/sqlrl
-source scripts/env.sh
-export PYTHONPATH=/home/ma-user/work/sqlrl:${PYTHONPATH:-}
+cd "$ROOT"
+source "$ROOT/scripts/env.sh"
+export PYTHONPATH="$ROOT:${PYTHONPATH:-}"
 python -c 'from e1_alignment.rebuild.contract import verify_contract; verify_contract()'
 exec python -u -m e1_alignment.sft_train \
   --data artifacts/m6/sft_rebuild/train.jsonl \

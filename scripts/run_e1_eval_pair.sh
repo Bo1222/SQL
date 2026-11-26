@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # E1-06: merge adapter V2 and run the fixed dev200 control/treatment pair.
 # Both arms use the frozen E1-01 contract (compact, 6144 context, greedy).
 set -eo pipefail
-source /home/ma-user/work/sqlrl/scripts/env.sh
-cd /home/ma-user/work/sqlrl
-export PYTHONPATH=/home/ma-user/work/sqlrl:$PYTHONPATH
+source "$ROOT/scripts/env.sh"
+cd "$ROOT"
+export PYTHONPATH="$ROOT:$PYTHONPATH"
 mkdir -p reports/m6/e1_alignment logs
 
 ADAPTER=${ADAPTER:-outputs/e1_alignment/e1_alignment_adapter_v2}

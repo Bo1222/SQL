@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # Run the three 5-step LR diagnostics sequentially on the single visible NPU.
 set -o pipefail
-cd /home/ma-user/work/sqlrl
+cd "$ROOT"
 mkdir -p logs artifacts/checkpoints/lr_diag reports/m6/traces_lr_diag
 
 for spec in "0.000001 lr1e6" "0.000002 lr2e6" "0.000005 lr5e6"; do

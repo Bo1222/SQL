@@ -1,15 +1,16 @@
 #!/usr/bin/env bash
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 set -euo pipefail
-cd /home/ma-user/work/sqlrl
+cd "$ROOT"
 if [[ "${1:-}" == sample ]]; then
   # Ascend's vendor setup probes unset shell variables (including ZSH_VERSION).
   set +u
-  source scripts/env.sh
+  source "$ROOT/scripts/env.sh"
   set -u
 fi
-export PYTHONPATH="/home/ma-user/work/sqlrl/.codex-deps/m6-08k:/home/ma-user/work/sqlrl:${PYTHONPATH:-}"
+export PYTHONPATH="$ROOT/.codex-deps/m6-08k:$ROOT:${PYTHONPATH:-}"
 mkdir -p reports/m6/sft_data_revision
-exec /home/ma-user/anaconda3/envs/PyTorch-2.9.0/bin/python -c '
+exec python3 -c '
 import json, subprocess, sys, time
 started = time.monotonic()
 result = subprocess.run([sys.executable, "-m", "e1_alignment.revision.workflow", *sys.argv[1:]])

@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from agent.sql_episode import EpisodeConfig, episode_to_record, run_episode  # noqa: E402
-from agent.protocol import PROMPT_VERSION, SFT_PROMPT_VERSION, build_prompt, catalog_from_metadata  # noqa: E402
+from agent.protocol import build_prompt, prompt_version_for  # noqa: E402
 from eval.backends import build_backend  # noqa: E402
 from eval.gold_extraction import extract_requirements, schema_columns  # noqa: E402
 from eval.harness_audit import coverage_of  # noqa: E402
@@ -149,6 +149,44 @@ def recall_from_events(events, requirements):
     }
 
 
+def build_eval_prompt(row, metadata, args, tokenizer, store=None, contract_id=None):
+    """Build the exact prompt passed to the engine; return (prompt, metadata).
+
+    ``contract_id`` wins over ``args.prompt_mode`` so a v3 run cannot silently
+    emit a v1 prompt.  The metadata is stored on every record and in the run
+    summary to prove which instruction the model actually saw.
+    """
+    prompt_mode = args.prompt_mode
+    max_tools = args.max_tools
+    if contract_id:
+        from agent.runtime_contract import contract_for
+        contract = contract_for(contract_id)
+        prompt_mode = contract["prompt_mode"]
+        max_tools = contract["max_tools"]
+    catalog = "\n".join(t["name"] for t in metadata["tables"])
+    if store is not None:
+        catalog = "\n".join(store.table_names)
+    prompt = build_prompt(row["question"], row.get("evidence", ""), catalog,
+                          max_tools=max_tools, prompt_mode=prompt_mode)
+    if args.chat_template:
+        messages = [
+            {"role": "system", "content":
+             "You are a read-only SQLite database agent. Output exactly one action and nothing else. "
+             "The body of <sql_execute> and <answer> must be raw SQL starting with SELECT or WITH, "
+             "never JSON."},
+            {"role": "user", "content": prompt},
+        ]
+        prompt = tokenizer.apply_chat_template(
+            messages, tokenize=False, add_generation_prompt=True)
+    meta = {
+        "prompt_version": prompt_version_for(prompt_mode),
+        "prompt_mode": prompt_mode,
+        "prompt_sha256": hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
+        "prompt_prefix": prompt[:200],
+    }
+    return prompt, meta
+
+
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--data", default="data/processed/bird_agent/val.jsonl")
@@ -173,7 +211,7 @@ def main():
     p.add_argument("--max-observation-tokens", type=int, default=1024)
     p.add_argument("--observation-budget", type=int, default=1024)
     p.add_argument("--observation-mode", choices=["legacy", "compact", "compact_v2"], default="compact")
-    p.add_argument("--prompt-mode", choices=["query", "sft"], default="query")
+    p.add_argument("--prompt-mode", choices=["query", "query_v3", "sft"], default="query")
     p.add_argument("--max-context", type=int, default=8192)
     p.add_argument("--max-model-len", type=int, default=8192)
     p.add_argument("--gpu-memory-utilization", type=float, default=0.55)
@@ -186,18 +224,21 @@ def main():
     p.add_argument("--timeout", type=int, default=10)
     p.add_argument("--score-mode", choices=["project_strict", "bird_set"], default="project_strict",
                    help="Historical project row-count+set rule, or official BIRD set-only; never mix silently")
-    p.add_argument("--runtime-contract", choices=["", "A-e1.2-typed-v1"], default="",
+    p.add_argument("--runtime-contract", choices=["", "A-e1.2-typed-v1", "A-e1.2-typed-v3"], default="",
                    help="Opt-in shared A train/eval configuration; preserves historical defaults otherwise")
     a = p.parse_args()
     if a.runtime_contract:
-        a.retrieval_version = "E1.2"
-        a.observation_mode = "compact_v2"
-        a.max_rounds, a.max_tools = 5, 4
-        a.max_schema_lookups, a.max_sql_executes = 2, 2
-        a.max_observation_tokens = a.observation_budget = 1024
-        a.max_context = a.max_model_len = 8192
-        a.score_mode, a.timeout = "bird_set", 10
-        a.prompt_mode, a.backend = "query", "unified"
+        from agent.runtime_contract import contract_for
+        contract = contract_for(a.runtime_contract)
+        a.retrieval_version = contract["retrieval_version"]
+        a.observation_mode = contract["observation_mode"]
+        a.max_rounds, a.max_tools = contract["max_rounds"], contract["max_tools"]
+        a.max_schema_lookups, a.max_sql_executes = (
+            contract["max_schema_lookups"], contract["max_sql_executes"])
+        a.max_observation_tokens = a.observation_budget = contract["max_observation_tokens"]
+        a.max_context = a.max_model_len = contract["max_context"]
+        a.score_mode, a.timeout = contract["score_mode"], contract["tool_timeout"]
+        a.prompt_mode, a.backend = contract["prompt_mode"], "unified"
         a.chat_template = a.stop_after_action = a.force_first_schema_lookup = a.enable_value_lookup = False
 
     from transformers import AutoTokenizer
@@ -227,7 +268,7 @@ def main():
                            force_first_schema_lookup=a.force_first_schema_lookup)
     if a.runtime_contract:
         from agent.runtime_contract import config as runtime_config
-        config = runtime_config()
+        config = runtime_config(a.runtime_contract)
     out = Path(a.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     trace = Path(a.trace_dir) if a.trace_dir else None
@@ -236,6 +277,7 @@ def main():
         (trace / "episodes.jsonl").unlink(missing_ok=True)
 
     metadata_cache, runtime_stores, records = {}, {}, []
+    prompt_meta = {}
     started = time.monotonic()
     for index, row in enumerate(rows, 1):
         db_id = row["db_id"]
@@ -243,24 +285,17 @@ def main():
             path = Path(row.get("metadata_path") or f"data/processed/bird_agent/metadata/{db_id}.json")
             metadata_cache[db_id] = json.loads(path.read_text(encoding="utf-8"))
         row = dict(row)
-        row["catalog_tables"] = [t["name"] for t in metadata_cache[db_id]["tables"]]
-        prompt = build_prompt(row["question"], row.get("evidence", ""), "\n".join(row["catalog_tables"]),
-                              max_tools=a.max_tools, prompt_mode=a.prompt_mode)
+        metadata = metadata_cache[db_id]
+        row["catalog_tables"] = [t["name"] for t in metadata["tables"]]
+        store = None
         if a.runtime_contract:
-            from agent.runtime_contract import load_store, prompt as runtime_prompt
+            from agent.runtime_contract import load_store
             if db_id not in runtime_stores:
                 runtime_stores[db_id] = load_store(a.catalog_dir, db_id, row["db_path"])
-            prompt = runtime_prompt(row, runtime_stores[db_id])
-        if a.chat_template:
-            messages = [
-                {"role": "system", "content":
-                 "You are a read-only SQLite database agent. Output exactly one action and nothing else. "
-                 "The body of <sql_execute> and <answer> must be raw SQL starting with SELECT or WITH, "
-                 "never JSON."},
-                {"role": "user", "content": prompt},
-            ]
-            prompt = tokenizer.apply_chat_template(
-                messages, tokenize=False, add_generation_prompt=True)
+            store = runtime_stores[db_id]
+        prompt, prompt_meta = build_eval_prompt(
+            row, metadata, a, tokenizer, store=store,
+            contract_id=a.runtime_contract or None)
         schema_tool = build_backend(a.backend, row, tokenizer=tokenizer, catalog_dir=a.catalog_dir,
                                     token_budget=a.observation_budget,
                                     enable_value_lookup=a.enable_value_lookup,
@@ -300,6 +335,7 @@ def main():
                 1 for s in record["segments"]
                 if s["kind"] == "observation" and "observation truncated to fit the budget" in s.get("text", "")),
         })
+        record.update(prompt_meta)
         records.append(record)
         if trace:
             with (trace / "episodes.jsonl").open("a", encoding="utf-8") as fh:
@@ -320,8 +356,13 @@ def main():
         "data_sha256": hashlib.sha256(Path(a.data).read_bytes()).hexdigest(),
         "shard_index": a.shard_index,
         "num_shards": a.num_shards,
-        "prompt_version": SFT_PROMPT_VERSION if a.prompt_mode == "sft" else PROMPT_VERSION,
-        "prompt_mode": a.prompt_mode,
+        "prompt_version": prompt_meta.get("prompt_version"),
+        "prompt_mode": prompt_meta.get("prompt_mode", a.prompt_mode),
+        "prompt_sha256": prompt_meta.get("prompt_sha256"),
+        "prompt_sha256_unique": len({r.get("prompt_sha256") for r in records}),
+        "prompt_prefix": prompt_meta.get("prompt_prefix"),
+        "prompt_versions": sorted({r.get("prompt_version") for r in records}),
+        "prompt_sha256_note": "summary hash/prefix are a sample; per-record values are in records.jsonl",
         "observation_mode": a.observation_mode,
         "retrieval_version": a.retrieval_version,
         "max_context": a.max_context, "max_model_len": a.max_model_len,

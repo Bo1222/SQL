@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # M4: one veRL step with the real BIRD agent loop + BIRD EX reward (integration check).
 set -eo pipefail
-source /home/ma-user/work/verl_quickstart/scripts/env.sh
-cd /home/ma-user/work/sqlrl
+source "$ROOT/scripts/env.sh"
+cd "$ROOT"
 export ASCEND_RT_VISIBLE_DEVICES="${CARDS:-0}"
-export PYTHONPATH=/home/ma-user/work/sqlrl:$PYTHONPATH
+export PYTHONPATH="$ROOT:$PYTHONPATH"
 export TOKENIZERS_PARALLELISM=false
 export HYDRA_FULL_ERROR=1
 export WANDB_MODE=disabled
 unset PYTORCH_NPU_ALLOC_CONF
 
-ROOT=/home/ma-user/work/sqlrl
-MODEL=/home/ma-user/work/env_verify/models/Qwen2.5-3B-Instruct
+MODEL="${SQLRL_MODEL_ROOT:-$HOME/work/env_verify/models}/Qwen2.5-3B-Instruct"
 ADAPTER=$ROOT/checkpoints/bird_agent_full_sft_20261026/seed_0/step_600
 
 python3 -u -m verl.trainer.main_ppo \

@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # M0: single-step GRPO with Qwen2.5-3B + step_600 LoRA on one Ascend 910B4.
 set -eo pipefail
-source /home/ma-user/work/verl_quickstart/scripts/env.sh
-cd /home/ma-user/work/sqlrl
+source "$ROOT/scripts/env.sh"
+cd "$ROOT"
 export ASCEND_RT_VISIBLE_DEVICES="${CARDS:-0}"
 unset PYTORCH_NPU_ALLOC_CONF
 export TOKENIZERS_PARALLELISM=false
 export HYDRA_FULL_ERROR=1
 export WANDB_MODE=disabled
 
-ROOT=/home/ma-user/work/sqlrl
-MODEL=/home/ma-user/work/env_verify/models/Qwen2.5-3B-Instruct
+MODEL="${SQLRL_MODEL_ROOT:-$HOME/work/env_verify/models}/Qwen2.5-3B-Instruct"
 ADAPTER=$ROOT/checkpoints/bird_agent_full_sft_20261026/seed_0/step_600
 
 python3 -u -m verl.trainer.main_ppo \

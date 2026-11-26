@@ -10,7 +10,8 @@ from dataclasses import dataclass, field
 from agent.protocol import build_prompt, parse_action
 
 FINISH_REASONS = ("answer_submitted", "turn_limit", "tool_limit", "invalid_action",
-                  "generation_error", "infrastructure_error", "budget_error")
+                  "generation_error", "infrastructure_error", "budget_error",
+                  "seed_observation_overflow")
 
 
 @dataclass
@@ -26,6 +27,10 @@ class EpisodeConfig:
     tool_timeout: int = 10
     preview_rows: int = 3
     force_first_schema_lookup: bool = False
+    # Optional diagnostic seed: one schema_lookup observation is appended before
+    # the model acts.  In this project it carries a Gold-selected table/column
+    # for the forced E1.2 vs E1.1 comparison; it is never training data.
+    seed_lookup: dict | None = None
     # "compact" drops logging-only fields (retrieval_metadata / elapsed_ms) from the
     # model-visible Observation; "legacy" reproduces the pre-2026-11-08 encoder.
     observation_mode: str = "compact"
@@ -191,21 +196,45 @@ def new_state(segment_ids, prompt_text):
 
 
 def run_episode(row, tokenizer, generate, schema_tool, sql_tool, config=None,
-                prompt=None, recorder=None):
+                prompt=None, recorder=None, seed_lookup=None):
     """Run one episode. `generate(ids, max_new_tokens)` returns token ids."""
     config = config or EpisodeConfig()
     catalog = "\n".join(row.get("catalog_tables") or [])
     prompt = prompt or build_prompt(row["question"], row.get("evidence", ""), catalog, config.max_tools)
     prompt_ids = tokenizer.encode(prompt, add_special_tokens=False)
     state = new_state(prompt_ids, prompt)
+    seed = seed_lookup if seed_lookup is not None else config.seed_lookup
+    if seed is not None and config.force_first_schema_lookup:
+        raise ValueError("seed_lookup and force_first_schema_lookup are mutually exclusive")
     if config.force_first_schema_lookup:
         # Validation-stage mode: every question sees one retrieval before the model acts.
-        seeded = schema_tool({"query": row.get("question", "")})
-        ids, text = encode_observation(tokenizer, seeded, config.max_observation_tokens, mode=config.observation_mode)
+        seed = {"query": row.get("question", "")}
+    if seed is not None:
+        if not isinstance(seed, dict) or not seed:
+            raise ValueError("seed_lookup must be a non-empty dict")
+        try:
+            seeded = schema_tool(seed)
+            ids, text = encode_observation(tokenizer, seeded, config.max_observation_tokens,
+                                           mode=config.observation_mode)
+        except ValueError as exc:
+            state["finish_reason"] = "seed_observation_overflow"
+            state["seed_error"] = str(exc)[:200]
+            return state
+        overflow = len(ids) > config.max_observation_tokens
+        if config.max_response_tokens is not None:
+            overflow = overflow or len(ids) > config.max_response_tokens
+        overflow = overflow or len(prompt_ids) + len(ids) >= config.max_context
+        if overflow:
+            state["finish_reason"] = "seed_observation_overflow"
+            state["seed_error"] = (
+                f"seed observation does not fit: ids={len(ids)} prompt={len(prompt_ids)} "
+                f"max_context={config.max_context} max_response={config.max_response_tokens}")
+            return state
         state["segments"].append({"kind": "observation", "ids": list(ids), "text": text})
         state["tool_calls"] += 1
         state["schema_lookups"] += 1
-        state["tool_events"].append({"action": "schema_lookup", "arguments": {"query": row.get("question", "")},
+        state["seeded_lookup"] = dict(seed)
+        state["tool_events"].append({"action": "schema_lookup", "arguments": dict(seed),
                                      "result": seeded, "seeded": True})
 
     def append(kind, ids, text):
@@ -321,6 +350,8 @@ def episode_to_record(state, row, config=None):
         "rounds": state.get("rounds"),
         "executions": state.get("executions", []),
         "tool_events": state.get("tool_events", []),
+        "seeded_lookup": state.get("seeded_lookup"),
+        "seed_error": state.get("seed_error"),
         "infrastructure_error": state.get("infrastructure_error", False),
         "segments": state.get("segments", []),
         "latency_ms": round((time.monotonic() - state.get("started", time.monotonic())) * 1000, 1),

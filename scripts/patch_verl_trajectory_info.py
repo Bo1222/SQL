@@ -2,9 +2,10 @@
 
 Idempotent. Run on the server before M6 calibration.
 """
+import os
 from pathlib import Path
 
-TARGET = Path("/home/ma-user/verl/verl/experimental/agent_loop/agent_loop.py")
+TARGET = Path(os.environ.get("SQLRL_VERL_ROOT", Path.home() / "verl")) / "verl/experimental/agent_loop/agent_loop.py"
 OLD = "            kwargs = {k: v[i] for k, v in batch.non_tensor_batch.items()}\n"
 NEW = OLD + "            kwargs[\"_trajectory_info\"] = trajectory_info[i]\n"
 

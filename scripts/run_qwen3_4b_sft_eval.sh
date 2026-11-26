@@ -1,15 +1,16 @@
 #!/usr/bin/env bash
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # M6-08l L2: merge the Qwen3-4B LoRA SFT adapter and run the raw E1 dev200 contract.
 # Usage: bash scripts/run_qwen3_4b_sft_eval.sh check|full
 set -o pipefail
-source /home/ma-user/work/sqlrl/scripts/env.sh
-cd /home/ma-user/work/sqlrl
-export PYTHONPATH=/home/ma-user/work/sqlrl/.codex-deps/m6-08k:/home/ma-user/work/sqlrl:${PYTHONPATH:-}
+source "$ROOT/scripts/env.sh"
+cd "$ROOT"
+export PYTHONPATH="$ROOT/.codex-deps/m6-08k:$ROOT:${PYTHONPATH:-}"
 
 MODE=${1:-check}
 ADAPTER=${ADAPTER:-outputs/qwen3_4b_sft/e1_lora_v1}
 MERGED=${MERGED:-outputs/qwen3_4b_sft/e1_lora_v1_merged}
-BASE=${BASE:-/home/ma-user/work/env_verify/models/Qwen3-4B-Instruct-2507-ms}
+BASE=${BASE:-${SQLRL_MODEL_ROOT:-$HOME/work/env_verify/models}/Qwen3-4B-Instruct-2507-ms}
 OUTDIR=${OUTDIR:-reports/m6/qwen3_4b_sft}
 GPU_MEM=${GPU_MEM:-0.55}
 mkdir -p "$OUTDIR"

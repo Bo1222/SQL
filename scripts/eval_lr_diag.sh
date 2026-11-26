@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # Merge one LR-diagnostic LoRA checkpoint and evaluate dev200 with compact observation.
 # Usage: bash scripts/eval_lr_diag.sh <tag> [step]
 set -eo pipefail
-source /home/ma-user/work/verl_quickstart/scripts/env.sh
-cd /home/ma-user/work/sqlrl
+source "$ROOT/scripts/env.sh"
+cd "$ROOT"
 export ASCEND_RT_VISIBLE_DEVICES="${CARDS:-0}"
 export TOKENIZERS_PARALLELISM=false
 unset PYTORCH_NPU_ALLOC_CONF
 
 TAG="$1"
 STEP="${2:-5}"
-ROOT=/home/ma-user/work/sqlrl
 BASE=$ROOT/artifacts/checkpoints/step_600_merged
 ADAPTER=$ROOT/artifacts/checkpoints/lr_diag/$TAG/global_step_$STEP/actor/lora_adapter
 MERGED=$ROOT/artifacts/checkpoints/merged_lr_diag_${TAG}_step${STEP}

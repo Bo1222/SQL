@@ -82,30 +82,39 @@ def check_parquet(path, *, expected_split, name, errors, warnings, runtime_contr
     modes = sorted({str(info.get("prompt_mode")) for info in infos})
     retrieval = sorted({str(info.get("retrieval_version")) for info in infos})
     versions = sorted({str(info.get("prompt_version")) for info in infos})
-    if modes != ["query"]:
-        errors.append(f"{name}: prompt_mode {modes}, expected ['query'] (E1.1 contract)")
-    expected_retrieval = "E1.2" if runtime_contract else "E1.1"
+    if runtime_contract:
+        from agent.protocol import prompt_version_for
+        from agent.runtime_contract import contract_for
+        contract = contract_for(runtime_contract)
+        expected_mode = contract["prompt_mode"]
+        expected_version = prompt_version_for(expected_mode)
+        expected_retrieval = contract["retrieval_version"]
+    else:
+        from agent.protocol import PROMPT_VERSION
+        expected_mode, expected_version, expected_retrieval = "query", PROMPT_VERSION, "E1.1"
+    if modes != [expected_mode]:
+        errors.append(f"{name}: prompt_mode {modes}, expected [{expected_mode!r}]")
     if retrieval != [expected_retrieval]:
         errors.append(f"{name}: retrieval_version {retrieval}, expected [{expected_retrieval!r}]")
     if runtime_contract:
-        from agent.runtime_contract import load_store, prompt, validate_extra
+        from agent.runtime_contract import load_store, prompt_for, validate_extra
         stores = {}
         catalog_dir = catalog_dir or ROOT / "artifacts/catalog"
         for info, messages in zip(infos, frame["prompt"].tolist()):
             try:
-                validate_extra(info)
+                validate_extra(info, contract_id=runtime_contract)
                 db = info["db_id"]
                 if db not in stores:
                     stores[db] = load_store(catalog_dir, db, info["db_path"])
                 actual = "\n".join(as_dict(m).get("content", "") for m in messages)
-                if actual != prompt(info, stores[db]):
+                if actual != prompt_for(info, stores[db], contract_id=runtime_contract):
                     raise ValueError(f"prompt differs from runtime for {info.get('question_id')}")
             except (ValueError, KeyError, OSError) as exc:
                 errors.append(f"{name}: {exc}")
                 break
-    if versions != ["catalog-three-action-query-v2"]:
+    if versions != [expected_version]:
         errors.append(
-            f"{name}: prompt_version {versions}, expected ['catalog-three-action-query-v2']")
+            f"{name}: prompt_version {versions}, expected [{expected_version!r}]")
     missing_gold = 0
     for item in frame["reward_model"].tolist():
         value = as_dict(item).get("ground_truth")
@@ -359,7 +368,7 @@ def main():
                    default="reports/m6/e1_student_only/test1534_paired_lowlr_788.json")
     p.add_argument("--require-sft-gate", action="store_true")
     p.add_argument("--require-dynamic-sampling", action="store_true")
-    p.add_argument("--runtime-contract", choices=["", "A-e1.2-typed-v1"], default="")
+    p.add_argument("--runtime-contract", choices=["", "A-e1.2-typed-v1", "A-e1.2-typed-v3"], default="")
     p.add_argument("--out", default="reports/m6/e1_student_only/rl_readiness.json")
     a = p.parse_args()
 

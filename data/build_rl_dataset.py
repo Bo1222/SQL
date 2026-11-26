@@ -29,10 +29,9 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from agent.protocol import (  # noqa: E402
-    PROMPT_VERSION,
-    SFT_PROMPT_VERSION,
     build_prompt,
     catalog_from_metadata,
+    prompt_version_for,
 )
 
 
@@ -92,10 +91,10 @@ def main():
     p.add_argument("--val-data", default="data/processed/bird_agent/val.jsonl")
     p.add_argument("--test-data", default="data/processed/bird_agent/test.jsonl")
     p.add_argument("--dev200-data", default="artifacts/datasets/dev200.jsonl")
-    p.add_argument("--prompt-mode", choices=("query", "sft"), default="query")
+    p.add_argument("--prompt-mode", choices=("query", "query_v3", "sft"), default="query")
     p.add_argument("--max-tools", type=int, default=4)
     p.add_argument("--retrieval-version", default="E1.1")
-    p.add_argument("--runtime-contract", choices=["", "A-e1.2-typed-v1"], default="")
+    p.add_argument("--runtime-contract", choices=["", "A-e1.2-typed-v1", "A-e1.2-typed-v3"], default="")
     p.add_argument("--limit", type=int, default=0)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--dataset-version", default="bird_rl_e1_1_v1")
@@ -107,7 +106,11 @@ def main():
     p.add_argument("--allow-question-overlap", action="store_true")
     a = p.parse_args()
     if a.runtime_contract:
-        a.retrieval_version, a.prompt_mode, a.max_tools = "E1.2", "query", 4
+        from agent.runtime_contract import contract_for
+        contract = contract_for(a.runtime_contract)
+        a.retrieval_version = contract["retrieval_version"]
+        a.prompt_mode = contract["prompt_mode"]
+        a.max_tools = contract["max_tools"]
     if a.max_tools < 1:
         p.error("--max-tools must be positive")
     if a.limit < 0:
@@ -165,7 +168,7 @@ def main():
     metadata_cache, runtime_stores = {}, {}
     records = []
     source_hash = sha256_file(data_path)
-    prompt_version = SFT_PROMPT_VERSION if a.prompt_mode == "sft" else PROMPT_VERSION
+    prompt_version = prompt_version_for(a.prompt_mode)
     for row in rows:
         db_id = row["db_id"]
         if db_id not in metadata_cache:
@@ -205,11 +208,17 @@ def main():
             },
         })
         if a.runtime_contract:
-            from agent.runtime_contract import CONTRACT, FINGERPRINT
-            records[-1]["extra_info"].update({"runtime_contract": a.runtime_contract,
-                "runtime_fingerprint": FINGERPRINT, "score_mode": "bird_set",
-                "reward_contract": "typed-v1", "observation_mode": "compact_v2",
-                "resolve_implicit_fks": True, "runtime_config": dict(CONTRACT)})
+            from agent.runtime_contract import FINGERPRINTS, contract_for
+            contract = contract_for(a.runtime_contract)
+            records[-1]["extra_info"].update({
+                "runtime_contract": a.runtime_contract,
+                "runtime_fingerprint": FINGERPRINTS[a.runtime_contract],
+                "score_mode": contract["score_mode"],
+                "reward_contract": contract["reward_contract"],
+                "observation_mode": contract["observation_mode"],
+                "resolve_implicit_fks": contract["resolve_implicit_fks"],
+                "runtime_config": dict(contract),
+            })
 
     out = Path(a.out)
     out.parent.mkdir(parents=True, exist_ok=True)

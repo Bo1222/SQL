@@ -16,6 +16,7 @@ This is a data rebuild, not training. It does not touch the old data.
 import argparse
 import hashlib
 import json
+import os
 import re
 import time
 from pathlib import Path
@@ -78,10 +79,11 @@ def lookup_has_tables(result):
 
 def main():
     p = argparse.ArgumentParser()
+    model_root = Path(os.environ.get("SQLRL_MODEL_ROOT", Path.home() / "work" / "env_verify" / "models"))
     p.add_argument("--data", default="artifacts/datasets/sft_trajectories.jsonl")
     p.add_argument("--out", default="artifacts/m6/e1_contract_rebuild/sft_trajectories_e1.jsonl")
     p.add_argument("--manifest", default="artifacts/m6/e1_contract_rebuild/manifest.json")
-    p.add_argument("--tokenizer", default="/home/ma-user/work/env_verify/models/Qwen2.5-3B-Instruct")
+    p.add_argument("--tokenizer", default=str(model_root / "Qwen2.5-3B-Instruct"))
     p.add_argument("--runtime-fingerprint", default="reports/m6/e1_alignment/runtime_fingerprint.json")
     p.add_argument("--dev200", default="artifacts/datasets/dev200.jsonl")
     p.add_argument("--limit", type=int, default=0)

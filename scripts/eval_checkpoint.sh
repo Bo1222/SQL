@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # Merge one veRL checkpoint's LoRA adapter and evaluate it on dev200 (E1, greedy).
 #
 # IMPORTANT: the Stage-1 actor was trained on top of the merged SFT weights
@@ -7,8 +8,8 @@
 #
 # Usage: bash scripts/eval_checkpoint.sh <checkpoint_dir> <tag> [data] [base]
 set -eo pipefail
-source /home/ma-user/work/sqlrl/scripts/env.sh
-cd /home/ma-user/work/sqlrl
+source "$ROOT/scripts/env.sh"
+cd "$ROOT"
 
 CKPT="$1"
 TAG="$2"

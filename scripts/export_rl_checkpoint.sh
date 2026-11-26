@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # Merge a veRL FSDP actor checkpoint into a HuggingFace model directory.
 #
 # Usage:
@@ -11,9 +12,9 @@
 #   OVERWRITE=1   replace an existing target directory
 #   DELETE_SHARDS=1 delete <run>/global_step_N/actor after a verified merge
 set -eo pipefail
-cd /home/ma-user/work/sqlrl
-source scripts/env.sh
-export PYTHONPATH=/home/ma-user/work/sqlrl:${PYTHONPATH:-}
+cd "$ROOT"
+source "$ROOT/scripts/env.sh"
+export PYTHONPATH="$ROOT:${PYTHONPATH:-}"
 
 RUN_DIR="${1:?usage: $0 RUN_DIR STEP [OUT_DIR]}"
 STEP="${2:?usage: $0 RUN_DIR STEP [OUT_DIR]}"

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # GRPO / DAPO launcher; explicit A typed contract and visible-device count.
 #
 # This script is intentionally dry-run by default.  RL must not start until the
@@ -26,10 +27,10 @@
 #   TEST1534_BASE/SFT/PAIRED=...  final-test reports used by the gate
 #   ENABLE_FILTER_GROUPS=1   requires project-local TRAINER=dapo_ds
 set -eo pipefail
-cd /home/ma-user/work/sqlrl
+cd "$ROOT"
 
 CALLER_WANDB_MODE="${WANDB_MODE:-}"
-source scripts/env.sh
+source "$ROOT/scripts/env.sh"
 if [ -f .env ]; then
   set -a
   source .env
@@ -51,7 +52,7 @@ else
   DEFAULT_FSDP_CPU_POLICY=False
 fi
 FSDP_CPU_OFFLOAD_POLICY="${FSDP_CPU_OFFLOAD_POLICY:-$DEFAULT_FSDP_CPU_POLICY}"
-export PYTHONPATH=/home/ma-user/work/sqlrl:${PYTHONPATH:-}
+export PYTHONPATH="$ROOT:${PYTHONPATH:-}"
 export TOKENIZERS_PARALLELISM=false
 export HYDRA_FULL_ERROR=1
 export RAY_DEDUP_LOGS=0
@@ -69,12 +70,22 @@ if [ "$RUNTIME_CONTRACT" = "legacy" ]; then
   REWARD_PATH=reward/bird_ex_reward.py
   DEFAULT_MODEL_LEN=6144
 else
-  if [ "$RUNTIME_CONTRACT" != "A-e1.2-typed-v1" ]; then
-    echo "unknown RUNTIME_CONTRACT=$RUNTIME_CONTRACT" >&2
-    exit 2
-  fi
-  TRAIN="${TRAIN:-artifacts/datasets/rl_A_typed_v1.parquet}"
-  VAL="${VAL:-artifacts/datasets/dev200_A_typed_v1.parquet}"
+  case "$RUNTIME_CONTRACT" in
+    A-e1.2-typed-v1)
+      DEFAULT_TRAIN="artifacts/datasets/rl_A_typed_v1.parquet"
+      DEFAULT_VAL="artifacts/datasets/dev200_A_typed_v1.parquet"
+      ;;
+    A-e1.2-typed-v3)
+      DEFAULT_TRAIN="artifacts/datasets/rl_A_typed_v3_reviewed.parquet"
+      DEFAULT_VAL="artifacts/datasets/dev200_A_typed_v3.parquet"
+      ;;
+    *)
+      echo "unknown RUNTIME_CONTRACT=$RUNTIME_CONTRACT" >&2
+      exit 2
+      ;;
+  esac
+  TRAIN="${TRAIN:-$DEFAULT_TRAIN}"
+  VAL="${VAL:-$DEFAULT_VAL}"
   RETRIEVAL_VERSION=E1.2
   OBSERVATION_MODE=compact_v2
   REWARD_FUNCTION=compute_score_with_details

@@ -18,6 +18,7 @@ The training-prefix part is a memorization check, not a generalization test.
 import argparse
 import gc
 import json
+import os
 import re
 from pathlib import Path
 
@@ -225,7 +226,8 @@ def summarize(items):
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--base", default="/home/ma-user/work/env_verify/models/Qwen3-4B-Instruct-2507-ms")
+    model_root = Path(os.environ.get("SQLRL_MODEL_ROOT", Path.home() / "work" / "env_verify" / "models"))
+    p.add_argument("--base", default=str(model_root / "Qwen3-4B-Instruct-2507-ms"))
     p.add_argument("--merged", default="outputs/qwen3_4b_sft/e1_lora_v1_resume105_merged")
     p.add_argument("--train-data", default="artifacts/m6/e1_alignment/e1_alignment_sft.jsonl")
     p.add_argument("--dev-traces", default="reports/m6/qwen3_4b_sft/resume105/smoke5_stop_traces/episodes.jsonl")

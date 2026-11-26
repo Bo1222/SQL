@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # SFT-compatibility diagnostic: can the frozen SFT checkpoint support RL gains?
 #
 # A: legacy observation encoder, autonomous lookup  (current Stage-1 runtime)
@@ -7,14 +8,14 @@
 #
 # All arms use the same frozen SFT checkpoint and dev200, greedy, 1 card per arm.
 set -o pipefail
-cd /home/ma-user/work/sqlrl
+cd "$ROOT"
 mkdir -p reports/m6/diag logs
 
 run_arm() {
   local card=$1 name=$2 mode=$3 forced=$4
   (
     export CARDS="$card"
-    source scripts/env.sh
+    source "$ROOT/scripts/env.sh"
     local extra=()
     if [ "$forced" = "1" ]; then
       extra+=(--force-first-schema-lookup)

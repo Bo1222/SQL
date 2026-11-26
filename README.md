@@ -27,7 +27,27 @@ tests/         契约与单元测试
 - veRL、vLLM / vLLM-Ascend
 - 运行 `source scripts/env.sh` 配置 CANN/ATB/HCCL 与 vLLM spawn 模式
 
-`requirements-rebuild.txt` 记录额外的 SQL 解析依赖。
+`requirements-rebuild.txt` 记录额外的 SQL 解析依赖：
+
+```bash
+pip install -r requirements-rebuild.txt
+```
+
+外部依赖路径通过环境变量覆盖，脚本本身不写死机器绝对路径：
+
+| 变量 | 用途 | 默认值 |
+|---|---|---|
+| `SQLRL_VERL_ENV` | veRL quickstart 的环境脚本 | `$HOME/work/verl_quickstart/scripts/env.sh` |
+| `SQLRL_MODEL_ROOT` | 基础模型目录 | `$HOME/work/env_verify/models` |
+| `SQLRL_VERL_ROOT` | veRL 源码目录（仅 patch 脚本使用） | `$HOME/verl` |
+| `CARDS` | 可见 NPU 编号 | `0` |
+
+本地凭证放在 `.env`（已被 Git 忽略）。首次使用：
+
+```bash
+cp .env.example .env
+# 按需填写 WANDB_API_KEY / GLM_API_KEY；不要提交 .env
+```
 
 ## 快速开始
 
@@ -53,6 +73,13 @@ python3 eval/evaluate_agent.py --limit 100 --backend unified --engine vllm \
 bash scripts/run_m6_08m_sft_3ep.sh   # Qwen2.5-3B 全参数 SFT
 bash scripts/run_m6_08m_rl.sh        # GRPO / DAPO Agentic RL
 ```
+
+## 仓库约定
+
+- 不提交 `.env`、凭证、模型权重、数据集、checkpoint、日志和实验输出；规则见 `.gitignore`。
+- `docs/` 与 `reports/` 是本地实验记录（规划、阶段报告、trace），默认不进入仓库；稳定说明保留在 README。
+- 新增配置项先写入 `.env.example`，只使用空值或虚构示例。
+- 新增脚本从自身位置解析仓库根目录，外部路径通过上表环境变量覆盖。
 
 ## 实验结果
 

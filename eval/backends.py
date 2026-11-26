@@ -5,10 +5,8 @@ E1 (unified): the new Catalog + SQLite + PK/FK retrieval backend.
 Everything else in the episode (protocol, SQL tool, budgets, generation) is shared.
 """
 import json
-import sys
 from pathlib import Path
 
-LEGACY_ROOT = Path("/home/ma-user/work/_sqlrl_legacy_20261107")
 METADATA_DIR = Path("data/processed/bird_agent/metadata")
 
 

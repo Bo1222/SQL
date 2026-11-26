@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # Each arm must be invoked via rebuild.budget; candidate requires final completed epoch.
 set -eo pipefail
-cd /home/ma-user/work/sqlrl
-source scripts/env.sh
-export PYTHONPATH=/home/ma-user/work/sqlrl:${PYTHONPATH:-}
+cd "$ROOT"
+source "$ROOT/scripts/env.sh"
+export PYTHONPATH="$ROOT:${PYTHONPATH:-}"
 python -c 'from e1_alignment.rebuild.contract import verify_contract; verify_contract()'
 STAGE=$1
 MODEL=artifacts/checkpoints/step_600_merged
